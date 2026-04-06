@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import OpenAI from "openai";
 import ReactMarkdown from "react-markdown";
 import { 
   BookOpen, 
@@ -104,6 +105,25 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+  const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY, dangerouslyAllowBrowser: true }) : null;
+
+  const generateAIContent = async (prompt: string, jsonMode: boolean = false) => {
+    if (openai) {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        response_format: jsonMode ? { type: "json_object" } : undefined,
+      });
+      return response.choices[0].message.content || "";
+    } else {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: jsonMode ? { responseMimeType: "application/json" } : undefined
+      });
+      return response.text || "";
+    }
+  };
 
   // --- Persistence ---
 
@@ -213,13 +233,8 @@ export default function App() {
         Format: [{"title": "Chapter 1: ...", "summary": "..."}, ...]
       `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: { responseMimeType: "application/json" }
-      });
-
-      const outline = JSON.parse(response.text || "[]");
+      const text = await generateAIContent(prompt, true);
+      const outline = JSON.parse(text || "[]");
       const newChapters: Chapter[] = outline.map((ch: any, index: number) => ({
         id: index + 1,
         title: ch.title,
@@ -273,14 +288,11 @@ export default function App() {
         Do not include meta-commentary or chapter titles in the output, just the narrative content.
       `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-      });
+      const text = await generateAIContent(prompt);
 
       setChapters(prev => prev.map((ch, i) => i === index ? { 
         ...ch, 
-        content: response.text || "", 
+        content: text || "", 
         status: "completed" 
       } : ch));
     } catch (err) {
@@ -822,8 +834,8 @@ export default function App() {
 
         <div className="flex items-center gap-4">
           <div className="hidden sm:flex items-center gap-2 text-[10px] text-zinc-500 uppercase tracking-widest bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            AI Engine Ready
+            <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", openai ? "bg-blue-500" : "bg-green-500")} />
+            {openai ? "OpenAI Engine Active" : "Gemini Engine Active"}
           </div>
         </div>
       </nav>
